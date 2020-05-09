@@ -1,0 +1,453 @@
+---
+title: "sentiment analysis"
+author: "Chenjie"
+date: "5/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+getwd()  # returns current working directory
+setwd("/Users/chenjiesu/Desktop/Text_as_Data_Assignments/project")  # set working directory
+# import libraries
+library(quanteda)
+library(tm)
+library(SnowballC)
+library(slam)
+library(xtable)
+library(wordcloud)
+library(RColorBrewer)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+coul <- brewer.pal(5, "Set3") 
+```
+
+split the data
+
+```{r }
+# deal with data
+raw_tweets <- read.csv("trump _tweets/realdonaldtrump.csv", stringsAsFactors = F)
+dim(raw_tweets)
+head(raw_tweets)
+```
+
+
+```{r }
+date1 <- as.POSIXct(paste("2014-06-16","00:00:00"))
+date2 <- as.POSIXct(paste("2015-06-16","00:00:00"))
+date3 <- as.POSIXct(paste("2016-11-09","00:00:00"))
+date4 <- as.POSIXct(paste("2020-01-22","00:00:00"))
+date5 <- as.POSIXct(paste("2020-04-15","00:00:00"))
+tweet_data_1 <- raw_tweets %>% 
+  filter(date >= date1 & date< date2)
+tweet_data_2 <- raw_tweets %>% 
+  filter(date >= date2 & date< date3)
+tweet_data_3 <-  raw_tweets %>% 
+  filter(date >= date3 & date< date4)
+tweet_data_4 <-  raw_tweets %>% 
+  filter(date >= date4 & date< date5)
+#the sum
+tweet_data_0 <- raw_tweets %>% 
+  filter(date >= date1 & date< date5)
+head(tweet_data_0)
+```
+
+clean all the corpus
+
+```{r}
+# clean corpus function
+cleanCorpus <- function(corpus) {
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeNumbers)
+#remove retweet tags
+corpus <- tm_map(corpus, content_transformer(function(x) gsub("rt @[a-z]*:", "", x)))
+#remove hastags
+corpus <- tm_map(corpus, content_transformer(function(x) gsub( "#[a-z]([a-z[:punct:]])*", "", x)))
+#remove handles
+corpus <- tm_map(corpus, content_transformer(function(x) gsub( "@[a-z]([a-z[:punct:]])*", "", x)))
+#remove &amp
+corpus <- tm_map(corpus, content_transformer(function(x) gsub("&amp", "", x)))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, stripWhitespace)
+#remove URLs.  By now all thats left is http([a-z]*)
+corpus <- tm_map(corpus, content_transformer(function(x) gsub( "http([a-z]*)", "", x)))
+#corpus <- tm_map(corpus, stemDocument)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+#corpus <- tm_map(corpus, PlainTextDocument)
+return(corpus)
+}
+```
+
+For all the subsets
+
+```{r}
+pal <- brewer.pal(8, "Accent")
+pal <- rev(pal)
+# tweet data
+myCorpus <- Corpus(VectorSource(tweet_data_0$content))
+myCorpus <- cleanCorpus(myCorpus)
+wordcloud(myCorpus, max.words = 150, scale=c(5, .5),random.order = F, col=pal)
+```
+
+```{r}
+tweet_corpus_1 <- Corpus(VectorSource(tweet_data_1$content))
+tweet_corpus_1 <- cleanCorpus(tweet_corpus_1)
+wordcloud(tweet_corpus_1, max.words = 180, scale=c(5, .5),random.order = F, col=pal)
+```
+
+
+```{r}
+tweet_corpus_2 <- Corpus(VectorSource(tweet_data_2$content))
+tweet_corpus_2 <- cleanCorpus(tweet_corpus_2)
+wordcloud(tweet_corpus_2, max.words = 200, scale=c(5, .5),random.order = F, col=pal)
+```
+
+
+```{r}
+tweet_corpus_3 <- Corpus(VectorSource(tweet_data_3$content))
+tweet_corpus_3 <- cleanCorpus(tweet_corpus_3)
+wordcloud(tweet_corpus_3, max.words = 115, scale=c(5, .5),random.order = F, col=pal)
+```
+
+
+```{r}
+tweet_corpus_4 <- Corpus(VectorSource(tweet_data_4$content))
+tweet_corpus_4 <- cleanCorpus(tweet_corpus_4)
+wordcloud(tweet_corpus_4, max.words = 155, scale=c(5, .5),random.order = F, col=pal)
+```
+The results are pretty obvious in different times.
+
+Then
+
+We will focus on the frequency
+
+```{r}
+tweet_data_0$hour <- as.numeric(sub(":", "" , substring(tweet_data_0$date, 12,13)))
+tweet_data_0$date <- as.Date(tweet_data_0$date)
+tweet_data_0$weekday <- weekdays(as.Date(tweet_data_0$date, '%y-%m-%d'))
+
+tweet_data_0$timeofday <- tweet_data_0$Time
+tweet_data_0$timeofday[tweet_data_0$hour >= 0 & tweet_data_0$hour <= 3] <- '12AM - 3AM'
+tweet_data_0$timeofday[tweet_data_0$hour >= 4 & tweet_data_0$hour <= 7] <- '4AM - 7AM'
+tweet_data_0$timeofday[tweet_data_0$hour >= 8 & tweet_data_0$hour <= 11] <- '8AM - 11AM'
+tweet_data_0$timeofday[tweet_data_0$hour >= 12 & tweet_data_0$hour <= 15] <- '12PM - 3PM'
+tweet_data_0$timeofday[tweet_data_0$hour >= 16 & tweet_data_0$hour <= 19] <- '4PM - 7PM'
+tweet_data_0$timeofday[tweet_data_0$hour >= 20 & tweet_data_0$hour <= 23] <- '8PM - 11AM'
+
+# daily frequency
+tweet_date <- as.Date(tweet_data_0$date, '%y-%m-%d')
+tweet_date <- sort(tweet_date, decreasing = F)
+curr_date <- tweet_date[1]
+nTweets <- 0
+cIdx <- 1
+date_freq <- vector()
+the_date <- vector()
+for (idx in 1:length(tweet_date)) {
+    if (tweet_date[idx] == curr_date) {
+      nTweets <- nTweets + 1
+  } else {
+    date_freq[cIdx] <- nTweets
+    the_date[cIdx] <- curr_date
+    cIdx <- cIdx + 1
+    while (difftime(tweet_date[idx], curr_date, units='days') > 1) {
+      # capture dates with no tweets
+      date_freq[cIdx] <- 0
+      curr_date <- as.Date((as.numeric(curr_date) + 1), origin = "1970-01-01")
+      the_date[cIdx] <- curr_date
+      cIdx <- cIdx + 1
+    }
+    
+    nTweets <- 1;
+    curr_date <- tweet_date[idx]
+  }
+}
+date_freq[cIdx] <- nTweets
+the_date[cIdx] <- curr_date
+#weekly frequency
+curr_date <- as.Date((as.numeric(the_date[1]) + 7), origin = "1970-01-01")
+cIdx <- 1
+freq <- 0;
+week_freq <- vector()
+week_idx <- vector()
+for (idx in 1:length(the_date)) {
+  if (the_date[idx] < curr_date) {
+    freq <- freq + date_freq[idx]
+  } else {
+    week_freq[cIdx] <- freq
+    week_idx[cIdx] <- idx
+    cIdx <- cIdx + 1
+    freq <- date_freq[idx]
+    curr_date <- as.Date((as.numeric(the_date[idx]) + 7), origin = "1970-01-01")
+  }
+}
+```
+
+
+```{r}
+#plot
+inc <- floor(length(date_freq)/4)
+labidx <- c(1, inc, inc*2, inc *3, length(date_freq))
+lablab <- as.Date(the_date[labidx], origin = "1970-01-01")
+
+plot(c(1:length(date_freq)), xaxt="n", date_freq, type="l", xlab="Date", ylab="Number of Tweets", main="Donald Trump Daily Tweet Frequency", col=coul)  
+axis(1, at=labidx, labels=lablab)
+lines(x=c(0, length(date_freq)), y=rep(mean(date_freq), 2), col='blue')
+
+```
+```{r}
+mean(date_freq)
+```
+```{r}
+max(date_freq)
+```
+
+
+```{r}
+inc <- floor(length(week_freq)/4)
+labidx <- c(1, inc, inc*2, inc *3, length(week_freq))
+
+plot(c(1:length(week_freq)), xaxt="n", week_freq,  type = 'b', pch='+', col = coul,
+     xlab="Date", ylab="Number of Tweets", main="Donald Trump Weekly Tweet Frequency")
+axis(1, at=labidx, labels=lablab)
+lines(x=c(0, length(week_freq)), y=rep(mean(week_freq), 2), col='blue')
+```
+```{r}
+mean(week_freq)
+```
+
+```{r}
+max(week_freq)
+```
+
+```{r}
+barplot(table(tweet_data_0$hour), col=coul, main = "Donald Trump Tweet Frequency by Hour", xlab="Hour of the Day", ylab="Frequency")
+```
+```{r}
+tbl <- table(tweet_data_0$timeofday)
+tbl <- c( tbl[3], tbl[5], tbl[2], tbl[4], tbl[6], tbl[1])
+barplot(tbl, col=coul, main = "Donald Trump Tweet Frequency by Time of Day", xlab="Time of Day", ylab="Frequency")
+```
+```{r}
+## tweet day of week time of day
+#dColor <- c("Red", "Green", "Blue", "Purple", "Orange", "Dark Red", "Magenta")
+
+tbl <- table(tweet_data_0$hour, tweet_data_0$weekday)
+tbl <- c(tbl[,2], tbl[,6], tbl[,7],tbl[,5],tbl[,1],tbl[,3],tbl[,4])
+
+ys <- rep(1:7, each=24)
+xs <-rep(0:23, 7)
+ws <- round(((tbl - min(tbl))*10)/(max(tbl)-min(tbl)))
+ws[which(ws == 0)] <- 1;
+
+symbols(y=ys, x=xs, circles =ws  , inches=.25, bg = rep(coul, each=24), xaxt="n", yaxt="n", 
+        main="Donald Trump Tweet Frequency By Weekday and Time of Day", xlab="Time of Day", ylab="Weekday")
+axis(1, at=0:23, labels=0:23)
+axis(2, at=1:7, labels=c("Monday", "Tuesday", "Wednesdy", "Thursday", "Friday", "Saturday", "Sunday"))
+
+```
+
+## Sentiment Analysis
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(dslabs)
+library(tidytext)
+```
+```{r}
+library("ggthemes")
+library("RColorBrewer")
+```
+
+```{r}
+## sentiment score
+#dictionary based
+
+positive <- as.character(unlist(read.table("positive-words.txt")))
+negative <- as.character(unlist(read.table("negative-words.txt")))
+
+tweet_data_0["sentiment_score"] <- rowSums(dfm(tweet_data_0$content, select = positive)) - rowSums(dfm(tweet_data_0$content, select = negative))
+tweet_data_0["sentiment"] <- as.character(lapply(tweet_data_0$sentiment_score, FUN = function(x) if(x>0) "positive" else "negative"))
+```
+```{r}
+hist_sentiment_score <- hist(tweet_data_0$sentiment_score, xlab='Sentiment Score', main='Histogram of Sentiment Score in tweet_data_0')
+```
+
+```{r}
+table(tweet_data_0$sentiment_score)
+table(tweet_data_0$sentiment)
+```
+```{r}
+#daily score
+daily_score <- tweet_data_0 %>% 
+  group_by(tweet_data_0$date) %>% 
+  summarise(n = mean(sentiment_score))
+names(daily_score) <- c("date", "sentiment_score")
+ggplot(daily_score, aes(x = date, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Date") + 
+  ggtitle("Daily Sentiment Average Score in tweet_data_0")
+
+```
+```{r}
+sentiment_count <- tweet_data_0 %>% 
+  group_by(tweet_data_0$date, tweet_data_0$sentiment) %>% 
+  summarise(n = n())
+
+names(sentiment_count) <- c("Date", "sentiment", "Count")
+
+ggplot(mapping = aes(x = sentiment_count$Date, y = sentiment_count$Count, group = sentiment_count$sentiment, 
+                     colour = sentiment_count$sentiment, shape = sentiment_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Date") +
+  labs(name='Sentiment') + 
+  ggtitle("Daily Sentiment Count in tweet_data_0")
+
+```
+```{r}
+#daily score
+daily_score <- tweet_data_4 %>% 
+  group_by(tweet_data_4$date) %>% 
+  summarise(n = mean(sentiment_score))
+names(daily_score) <- c("date", "sentiment_score")
+ggplot(daily_score, aes(x = date, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Date") + 
+  ggtitle("Daily Sentiment Average Score in tweet_data_4")
+
+final_count <- tweet_data_4 %>% 
+  group_by(tweet_data_4$date, tweet_data_4$sentiment) %>% 
+  summarise(n = n())
+
+names(final_count) <- c("Date", "sentiment", "Count")
+
+ggplot(mapping = aes(x = final_count$Date, y = final_count$Count, group = final_count$sentiment, 
+                      shape = final_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Date") +
+  labs(name='Sentiment') + 
+  ggtitle("Daily Sentiment Count in tweet_data_4")
+
+```
+
+
+```{r}
+## sentiment changes through time
+hour_score <- tweet_data_0 %>% 
+  group_by(tweet_data_0$hour) %>% 
+  summarise(n = mean(sentiment_score))
+
+names(hour_score) <- c("hour", "sentiment_score")
+
+ggplot(hour_score, aes(x = hour, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Hour") + 
+  ggtitle("Hourly Sentiment Average Score in tweet_data_0")
+
+sentiment_count <- tweet_data_0 %>% 
+  group_by(tweet_data_0$hour, tweet_data_0$sentiment) %>% 
+  summarise(n = n())
+
+names(sentiment_count) <- c("Hour", "sentiment", "Count")
+
+ggplot(mapping = aes(x = sentiment_count$Hour, y = sentiment_count$Count, group = sentiment_count$sentiment, 
+                     colour = sentiment_count$sentiment, shape = sentiment_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Hour") + scale_colour_wsj()+
+  labs(name='Sentiment') + 
+  ggtitle("Hourly Sentiment Count in tweet_data_0")
+```
+for tweet_data_1
+```{r}
+## sentiment changes through time
+hour_score <- tweet_data_1 %>% 
+  group_by(tweet_data_1$hour) %>% 
+  summarise(n = mean(sentiment_score))
+
+names(hour_score) <- c("hour", "sentiment_score")
+
+ggplot(hour_score, aes(x = hour, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Hour") + 
+  ggtitle("Hourly Sentiment Average Score in tweet_data_1")
+
+sentiment_count <- tweet_data_1 %>% 
+  group_by(tweet_data_1$hour, tweet_data_1$sentiment) %>% 
+  summarise(n = n())
+
+names(sentiment_count) <- c("Hour", "sentiment", "Count")
+
+ggplot(mapping = aes(x = sentiment_count$Hour, y = sentiment_count$Count, group = sentiment_count$sentiment, 
+                     colour = sentiment_count$sentiment, shape = sentiment_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Hour") + scale_colour_wsj()+
+  labs(name='Sentiment') + 
+  ggtitle("Hourly Sentiment Count in tweet_data_1")
+```
+```{r}
+## sentiment changes through time
+hour_score <- tweet_data_2 %>% 
+  group_by(tweet_data_2$hour) %>% 
+  summarise(n = mean(sentiment_score))
+
+names(hour_score) <- c("hour", "sentiment_score")
+
+ggplot(hour_score, aes(x = hour, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Hour") + 
+  ggtitle("Hourly Sentiment Average Score in tweet_data_2")
+
+sentiment_count <- tweet_data_2 %>% 
+  group_by(tweet_data_2$hour, tweet_data_2$sentiment) %>% 
+  summarise(n = n())
+
+names(sentiment_count) <- c("Hour", "sentiment", "Count")
+
+ggplot(mapping = aes(x = sentiment_count$Hour, y = sentiment_count$Count, group = sentiment_count$sentiment, 
+                     colour = sentiment_count$sentiment, shape = sentiment_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Hour") + scale_colour_wsj()+
+  labs(name='Sentiment') + 
+  ggtitle("Hourly Sentiment Count in tweet_data_2")
+```
+```{r}
+## sentiment changes through time
+hour_score <- tweet_data_3 %>% 
+  group_by(tweet_data_3$hour) %>% 
+  summarise(n = mean(sentiment_score))
+
+names(hour_score) <- c("hour", "sentiment_score")
+
+ggplot(hour_score, aes(x = hour, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Hour") + 
+  ggtitle("Hourly Sentiment Average Score in tweet_data_3")
+
+sentiment_count <- tweet_data_3 %>% 
+  group_by(tweet_data_3$hour, tweet_data_3$sentiment) %>% 
+  summarise(n = n())
+
+names(sentiment_count) <- c("Hour", "sentiment", "Count")
+
+ggplot(mapping = aes(x = sentiment_count$Hour, y = sentiment_count$Count, group = sentiment_count$sentiment, 
+                     colour = sentiment_count$sentiment, shape = sentiment_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Hour") + scale_colour_wsj()+
+  labs(name='Sentiment') + 
+  ggtitle("Hourly Sentiment Count in tweet_data_3")
+```
+```{r}
+## sentiment changes through time
+hour_score <- tweet_data_4 %>% 
+  group_by(tweet_data_4$hour) %>% 
+  summarise(n = mean(sentiment_score))
+
+names(hour_score) <- c("hour", "sentiment_score")
+
+ggplot(hour_score, aes(x = hour, y = sentiment_score)) + 
+  geom_point(size = 3.5, shape = 20, colour = 4) + ylab("Average Sentiment Score") + xlab("Hour") + 
+  ggtitle("Hourly Sentiment Average Score in tweet_data_4")
+
+sentiment_count <- tweet_data_4 %>% 
+  group_by(tweet_data_4$hour, tweet_data_4$sentiment) %>% 
+  summarise(n = n())
+
+names(sentiment_count) <- c("Hour", "sentiment", "Count")
+
+ggplot(mapping = aes(x = sentiment_count$Hour, y = sentiment_count$Count, group = sentiment_count$sentiment, 
+                     colour = sentiment_count$sentiment, shape = sentiment_count$sentiment)) + 
+  geom_point(size = 1.8) + ylab("Sentiment Count") + xlab("Hour") + scale_colour_wsj()+
+  labs(name='Sentiment') + 
+  ggtitle("Hourly Sentiment Count in tweet_data_4")
+```
