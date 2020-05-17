@@ -1,0 +1,512 @@
+---
+title: "trump"
+author: "Zhewen"
+date: "5/4/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+rm(list = ls())
+```
+
+```{r,echo=FALSE}
+library(corpus)
+library(quanteda)
+library(quanteda.corpora)
+library(dplyr)
+library(topicmodels)
+library(lda)
+library(stm)
+library(ggplot2)
+#install.packages("tidytext")
+library(tidytext)
+#install.packages("data.table")
+library(data.table)
+#install.packages("text2vec")
+library(text2vec)
+#install.packages("Rtsne")
+library(Rtsne)
+#install.packages("rsvd")
+library(rsvd)
+#install.packages("geometry")
+library(geometry )
+#install.packages("bursts")
+library(bursts)
+#install.packages("tm")
+library(tm)
+#install.packages("tmap")
+library(tmap)
+#install.packages('pals')
+library(pals)
+```
+
+
+
+```{r}
+raw_tweets <- read.csv("~/Downloads/realdonaldtrump.csv", stringsAsFactors = F)
+
+tweet_data <- raw_tweets[grep("RT ", raw_tweets$content, invert=T),]
+retweet_data <- raw_tweets[grep("RT ", raw_tweets$content),]
+raw_tweets$date <- as.Date(raw_tweets$date)
+
+date1 <- as.POSIXct(paste("2014-06-16","00:00:00"))
+date2 <- as.POSIXct(paste("2015-06-16","00:00:00"))
+date3 <- as.POSIXct(paste("2016-11-09","00:00:00"))
+
+date4 <- as.POSIXct(paste("2020-01-22","00:00:00"))
+date5 <- as.POSIXct(paste("2020-04-15","00:00:00"))
+
+```
+
+```{r}
+tweet_data_1 <- tweet_data %>% 
+  filter(date >= date1 & date< date2)
+tweet_data_2 <- tweet_data %>% 
+  filter(date >= date2 & date< date3)
+tweet_data_3 <-  tweet_data %>% 
+  filter(date >= date3 & date< date4)
+tweet_data_4 <-  tweet_data %>% 
+  filter(date >= date4 & date< date5)
+```
+
+```{r}
+tweet_data_5 <-  tweet_data %>% 
+  filter(date >= date1 & date< date5)
+```
+
+
+```{r}
+theta_3
+```
+
+
+```{r}
+cleanCorpus <- function(corpus) {
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeNumbers)
+#remove retweet tags
+corpus <- tm_map(corpus, content_transformer(function(x) gsub("rt @[a-z]*:", "", x)))
+#remove hastags
+corpus <- tm_map(corpus, content_transformer(function(x) gsub( "#[a-z]([a-z[:punct:]])*", "", x)))
+#remove handles
+corpus <- tm_map(corpus, content_transformer(function(x) gsub( "@[a-z]([a-z[:punct:]])*", "", x)))
+#remove &amp
+corpus <- tm_map(corpus, content_transformer(function(x) gsub("&amp", "", x)))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, stripWhitespace)
+#remove URLs.  By now all thats left is http([a-z]*)
+corpus <- tm_map(corpus, content_transformer(function(x) gsub( "http([a-z]*)", "", x)))
+#corpus <- tm_map(corpus, stemDocument)
+corpus <- tm_map(corpus, removeWords, c(stopwords("english"),'donald','trump','donaldtrump','realdonaldtrump'))
+#corpus <- tm_map(corpus, PlainTextDocument)
+return(corpus)}
+
+```
+
+```{r}
+tweet_data_1
+```
+
+
+##data1
+```{r}
+myCorpus_1 <- Corpus(VectorSource(tweet_data_1$content))
+myCorpus_1 <- cleanCorpus(myCorpus_1)
+
+
+dfm_1 <- dfm(myCorpus_1$content,remove_punct = TRUE, remove_numbers = TRUE, tolower=TRUE,stem=FALSE,remove=stopwords("english"))
+#dfm_1 <- dfm_trim(dfm_1, min_termfreq = 20, min_docfreq=10)
+dfm_1 <- dfm_subset(dfm_1, ntoken(dfm_1) > 0)
+dfm_1
+```
+
+```{r}
+topic_model_1 <- LDA(dfm_1, k=12, method='Gibbs', control=list(seed=1001, iter=3000))
+top_words_1 <- get_terms(topic_model_1,k=10)
+tweet_topics_1 <- topics(topic_model_1)
+top_topics_1 <- as.data.table(tweet_topics_1,keep.rownames=TRUE)
+top_topics_1 <- top_topics_1 %>% count(tweet_topics_1) 
+top_topics_1 <- top_topics_1[order(top_topics_1$n,decreasing = TRUE),]
+print(top_topics_1)
+
+```
+
+```{r}
+top_words_1
+```
+
+
+
+```{r}
+tweet_topics_1 <- tidy(topic_model_1, matrix = "beta") 
+
+tweet_top_terms_1 <- tweet_topics_1 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+tweet_top_terms_1 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+theta_1 <- as.data.frame(topicmodels::posterior(topic_model_1)$topics)
+topicNames_1 <- apply(top_words_1, 2, paste, collapse=" ")
+topicProportions_1 <- colSums(theta_1) / nrow(dfm_1)  # mean probablities over all paragraphs
+names(topicProportions_1) <- topicNames_1     # assign the topic names we created before
+sort(topicProportions_1, decreasing = TRUE)
+```
+
+```{r}
+countsOfPrimaryTopics <- rep(0, 12)
+names(countsOfPrimaryTopics) <- topicNames_1
+for (i in 1:nrow(dfm_1)) {
+  topicsPerDoc <- theta_1[i, ] # select topic distribution for document i
+  # get first element position from ordered list
+  primaryTopic <- order(topicsPerDoc, decreasing = TRUE)[1] 
+  countsOfPrimaryTopics[primaryTopic] <- countsOfPrimaryTopics[primaryTopic] + 1
+}
+sort(countsOfPrimaryTopics, decreasing = TRUE)
+```
+
+
+##data 2
+```{r}
+myCorpus_2 <- Corpus(VectorSource(tweet_data_2$content))
+myCorpus_2 <- cleanCorpus(myCorpus_2)
+
+dfm_2 <- dfm(myCorpus_2$content,remove_punct = TRUE, remove_numbers = TRUE, tolower=TRUE,stem=FALSE,remove=stopwords("english"))
+#dfm_1 <- dfm_trim(dfm_1, min_termfreq = 20, min_docfreq=10)
+dfm_2 <- dfm_subset(dfm_2, ntoken(dfm_2) > 0)
+dfm_2
+```
+
+```{r}
+topic_model_2 <- LDA(dfm_2, k=12, method='Gibbs', control=list(seed=1001, iter=3000))
+top_words_2 <- get_terms(topic_model_2,k=10)
+tweet_topics_2 <- topics(topic_model_2)
+top_topics_2 <- as.data.table(tweet_topics_2,keep.rownames=TRUE)
+top_topics_2 <- top_topics_2 %>% count(tweet_topics_2) 
+top_topics_2 <- top_topics_2[order(top_topics_2$n,decreasing = TRUE),]
+print(top_topics_2)
+
+```
+
+```{r}
+print(top_words_2)
+```
+
+
+```{r}
+tweet_topics_2 <- tidy(topic_model_2, matrix = "beta") 
+
+tweet_top_terms_2 <- tweet_topics_2 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+tweet_top_terms_2 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+theta_2 <- as.data.frame(topicmodels::posterior(topic_model_2)$topics)
+topicNames_2 <- apply(top_words_2, 2, paste, collapse=" ")
+topicProportions_2 <- colSums(theta_2) / nrow(dfm_2)  # mean probablities over all paragraphs
+names(topicProportions_2) <- topicNames_2     # assign the topic names we created before
+sort(topicProportions_2, decreasing = TRUE)
+```
+
+```{r}
+countsOfPrimaryTopics <- rep(0, 12)
+names(countsOfPrimaryTopics) <- topicNames_2
+for (i in 1:nrow(dfm_2)) {
+  topicsPerDoc <- theta_2[i, ] # select topic distribution for document i
+  # get first element position from ordered list
+  primaryTopic <- order(topicsPerDoc, decreasing = TRUE)[1] 
+  countsOfPrimaryTopics[primaryTopic] <- countsOfPrimaryTopics[primaryTopic] + 1
+}
+sort(countsOfPrimaryTopics, decreasing = TRUE)
+```
+
+##data 3
+```{r}
+myCorpus_3 <- Corpus(VectorSource(tweet_data_3$content))
+myCorpus_3 <- cleanCorpus(myCorpus_3)
+
+dfm_3 <- dfm(myCorpus_3$content,remove_punct = TRUE, remove_numbers = TRUE, tolower=TRUE,stem=FALSE,remove=stopwords("english"))
+#dfm_1 <- dfm_trim(dfm_1, min_termfreq = 20, min_docfreq=10)
+dfm_3 <- dfm_subset(dfm_3, ntoken(dfm_3) > 0)
+dfm_3
+```
+```{r}
+topic_model_3 <- LDA(dfm_3, k=12, method='Gibbs', control=list(seed=1001, iter=3000))
+top_words_3 <- get_terms(topic_model_3,k=10)
+tweet_topics_3 <- topics(topic_model_3)
+top_topics_3 <- as.data.table(tweet_topics_3,keep.rownames=TRUE)
+top_topics_3 <- top_topics_3 %>% count(tweet_topics_3) 
+top_topics_3 <- top_topics_3[order(top_topics_3$n,decreasing = TRUE),]
+print(top_topics_3)
+```
+
+```{r}
+tweet_topics_3 <- tidy(topic_model_3, matrix = "beta") 
+
+tweet_top_terms_3 <- tweet_topics_3 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+tweet_top_terms_3 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+
+theta_3 <- as.data.frame(topicmodels::posterior(topic_model_3)$topics)
+topicNames_3 <- apply(top_words_3, 2, paste, collapse=" ")
+topicProportions_3 <- colSums(theta_3) / nrow(dfm_3)  # mean probablities over all paragraphs
+names(topicProportions_3) <- topicNames_3     # assign the topic names we created before
+sort(topicProportions_3, decreasing = TRUE)
+```
+
+```{r}
+countsOfPrimaryTopics <- rep(0, 12)
+names(countsOfPrimaryTopics) <- topicNames_3
+for (i in 1:nrow(dfm_3)) {
+  topicsPerDoc <- theta_3[i, ] # select topic distribution for document i
+  # get first element position from ordered list
+  primaryTopic <- order(topicsPerDoc, decreasing = TRUE)[1] 
+  countsOfPrimaryTopics[primaryTopic] <- countsOfPrimaryTopics[primaryTopic] + 1
+}
+sort(countsOfPrimaryTopics, decreasing = TRUE)
+```
+
+##data 4
+```{r}
+myCorpus_4 <- Corpus(VectorSource(tweet_data_4$content))
+myCorpus_4 <- cleanCorpus(myCorpus_4)
+
+dfm_4 <- dfm(myCorpus_4$content,remove_punct = TRUE, remove_numbers = TRUE, tolower=TRUE,stem=FALSE,remove=stopwords("english"))
+#dfm_1 <- dfm_trim(dfm_1, min_termfreq = 20, min_docfreq=10)
+dfm_4 <- dfm_subset(dfm_4, ntoken(dfm_4) > 0)
+tweet_data_4
+dfm_4
+```
+
+```{r}
+topic_model_4 <- LDA(dfm_4, k=12, method='Gibbs', control=list(seed=1001, iter=3000))
+top_words_4 <- get_terms(topic_model_4,k=10)
+tweet_topics_4 <- topics(topic_model_4)
+top_topics_4 <- as.data.table(tweet_topics_4,keep.rownames=TRUE)
+top_topics_4 <- top_topics_4 %>% count(tweet_topics_4) 
+top_topics_4 <- top_topics_4[order(top_topics_4$n,decreasing = TRUE),]
+print(top_topics_4)
+```
+
+```{r}
+tweet_topics_4 <- tidy(topic_model_4, matrix = "beta") 
+
+tweet_top_terms_4 <- tweet_topics_4 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+tweet_top_terms_4 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+theta_4 <- as.data.frame(topicmodels::posterior(topic_model_4)$topics)
+topicNames_4 <- apply(top_words_4, 2, paste, collapse=" ")
+topicProportions_4 <- colSums(theta_4) / nrow(dfm_4)  # mean probablities over all paragraphs
+names(topicProportions_4) <- topicNames_4     # assign the topic names we created before
+sort(topicProportions_4, decreasing = TRUE)
+```
+
+```{r}
+countsOfPrimaryTopics <- rep(0, 12)
+names(countsOfPrimaryTopics) <- topicNames_4
+for (i in 1:nrow(dfm_4)) {
+  topicsPerDoc <- theta_4[i, ] # select topic distribution for document i
+  # get first element position from ordered list
+  primaryTopic <- order(topicsPerDoc, decreasing = TRUE)[1] 
+  countsOfPrimaryTopics[primaryTopic] <- countsOfPrimaryTopics[primaryTopic] + 1
+}
+sort(countsOfPrimaryTopics, decreasing = TRUE)
+```
+
+## all data
+
+```{r}
+tweet_data_1$interval <- '1'
+tweet_data_2$interval <- '2'
+tweet_data_3$interval <- '3'
+tweet_data_4$interval <- '4'
+
+#tweet_data$year <- substr(as.character(tweet_data$date), 1, 4)
+
+
+tweet_data_all <- rbind(tweet_data_1,tweet_data_2,tweet_data_3,tweet_data_4)
+tweet_data_all$year <- substr(as.character(tweet_data_all$date), 1, 4)
+tweet_data_5 <- rbind(tweet_data_1[1:7391,],tweet_data_2[1:7581,],tweet_data_3[1:10187,],tweet_data_4[1:1142,])
+tweet_data_5$year <- substr(as.character(tweet_data_5$date), 1, 4)
+tweet_data_5
+```
+
+
+```{r}
+
+myCorpus_5 <- Corpus(VectorSource(tweet_data_all$content))
+myCorpus_5 <- cleanCorpus(myCorpus_5)
+
+dfm_5 <- dfm(myCorpus_5$content,remove_punct = TRUE, remove_numbers = TRUE, tolower=TRUE,stem=FALSE,remove=stopwords("english"))
+#dfm_5 <- dfm_trim(dfm_5, min_termfreq = 100, min_docfreq=100)
+dfm_5 <- dfm_subset(dfm_5, ntoken(dfm_5) > 0)
+dfm_5
+```
+
+```{r}
+topic_model_5 <- LDA(dfm_5, k=12, method='Gibbs', control=list(seed=1001, iter=3000))
+top_words_5 <- get_terms(topic_model_5,k=10)
+tweet_topics_5 <- topics(topic_model_5)
+top_topics_5 <- as.data.table(tweet_topics_5,keep.rownames=TRUE)
+top_topics_5 <- top_topics_5 %>% count(tweet_topics_5) 
+top_topics_5 <- top_topics_5[order(top_topics_5$n,decreasing = TRUE),]
+print(top_topics_5)
+```
+
+```{r}
+tweet_topics_5 <- tidy(topic_model_5, matrix = "beta") 
+
+tweet_top_terms_5 <- tweet_topics_5 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+tweet_top_terms_5 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+
+
+```{r}
+theta_5 <- as.data.frame(topicmodels::posterior(topic_model_5)$topics)
+topicNames_5 <- apply(top_words_5, 2, paste, collapse=" ")
+# get mean topic proportions per decade
+topic_proportion_per_interval <- aggregate(theta_5, by = list(interval = tweet_data_5$year), mean)
+# set topic names to aggregated columns
+colnames(topic_proportion_per_interval)[2:13] <- topicNames_5
+
+# reshape data frame
+vizDataFrame <- melt(topic_proportion_per_interval, id.vars = "interval")
+
+# plot topic proportions per deacde as bar plot
+
+ggplot(vizDataFrame, aes(x=interval, y=value, fill=variable)) + 
+  geom_bar(stat = "identity") + ylab("proportion") + 
+  scale_fill_manual(values = paste0(alphabet(20), "FF"), name = "topic") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+topicProportions_5 <- colSums(theta_5) / nrow(dfm_5)  # mean probablities over all paragraphs
+names(topicProportions_5) <- topicNames_5    # assign the topic names we created before
+sort(topicProportions_5, decreasing = TRUE)
+```
+
+```{r}
+doc_topics <- topic_model_5@gamma
+doc_topics <- t(doc_topics)
+#dim(doc_topics)
+#doc_topics[1:5,1:5]
+
+max <- apply(doc_topics, 2, which.max)
+#match_date <- mdy(c("07/02/2018","07/15/2018"))
+top_topics <- data.frame(top_topic = max, year = tweet_data_5$year)
+
+topic_date <- top_topics %>% 
+  group_by(top_topics$year, top_topics$top_topic) %>% 
+  summarise(n = sum(top_topic))
+print(topic_date)
+
+names(topic_date) <- c("Year", "Topic", "Counts")
+topic_date$Topic <- as.character(topic_date$Topic)
+#topic_date$Year <- topic_date$year
+
+topic_date
+
+ggplot(mapping = aes(x = topic_date$Year, y = topic_date$Counts, group = topic_date$Topic, 
+                     colour = topic_date$Topic))+ geom_point(size = 1.1, shape = 21) + 
+  geom_line(size = 1) + ylab("Topic Count") + xlab("Year") + 
+  labs(color='Topic') +
+   
+  ggtitle("Topic Counts Changes through Year")
+```
+```{r}
+rownames(topic_date) <- topic_date$year
+#topic_date
+topic_date <- topic_date[0:2]
+topic_date
+max_topic_date <- apply(topic_date, 1, which.max)
+
+which.max2 <- function(x){
+  which(x == sort(x,partial=(11))[11])
+}
+max2_topic_date <- apply(topic_date, 1, which.max2)
+#max2 <- sapply(max2, max)
+
+which.max3 <- function(x){
+  which(x == sort(x,partial=(10))[10])
+}
+max3_topic_date <- apply(topic_date, 1, which.max3)
+
+top3 <- data.frame(top_topic = max_topic_date, second_topic = max2_topic_date, 
+                   third_topic = max3_topic_date)
+
+#top3
+```
+
+```{r}
+countsOfPrimaryTopics <- rep(0, 12)
+names(countsOfPrimaryTopics) <- topicNames_5
+for (i in 1:nrow(dfm_5)) {
+  topicsPerDoc <- theta_5[i, ] # select topic distribution for document i
+  # get first element position from ordered list
+  primaryTopic <- order(topicsPerDoc, decreasing = TRUE)[1] 
+  countsOfPrimaryTopics[primaryTopic] <- countsOfPrimaryTopics[primaryTopic] + 1
+}
+sort(countsOfPrimaryTopics, decreasing = TRUE)
+```
+
+
